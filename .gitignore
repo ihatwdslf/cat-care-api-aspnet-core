@@ -1,0 +1,54 @@
+﻿# Build artifacts
+bin/
+obj/
+out/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Rider / VS Code / VS
+.idea/
+.vscode/
+*.code-workspace
+
+# ASP.NET Core
+wwwroot/
+appsettings.Development.json
+appsettings.Local.json
+
+# EF Core Migrations (optional to ignore snapshots)
+Migrations/
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# Secrets
+secrets.json
+
+# dotnet watch
+*.db-wal
+*.db-shm
+
+# Npgsql/PostgreSQL
+*.sql
+
+# Environment variables
+.env
+.env.*
+
+# Test results
+TestResults/
+coverage/
+
+# Dependency cache
+packages/
+node_modules/

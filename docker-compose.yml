@@ -1,0 +1,28 @@
+﻿version: '3.4'
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=cats;Username=postgres;Password=postgres
+    networks:
+      - catnet
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: cats
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    networks:
+      - catnet
+
+networks:
+  catnet:
