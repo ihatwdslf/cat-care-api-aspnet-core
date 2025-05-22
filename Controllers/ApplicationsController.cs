@@ -1,8 +1,10 @@
 ﻿using CatCareApi.Data;
-using CatCareApi.DTOs;
+using CatCareApi.DTOs.Application;
+using CatCareApi.DTOs.Pet;
 using CatCareApi.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace CatCareApi.Controllers;
 
@@ -10,143 +12,112 @@ namespace CatCareApi.Controllers;
 [Route("api/[controller]")]
 public class ApplicationsController : ControllerBase
 {
-    private readonly ApplicationDbContext _context;
+    private readonly CatCareContext _context;
 
-    public ApplicationsController(ApplicationDbContext context)
+    public ApplicationsController(CatCareContext context)
     {
         _context = context;
     }
 
-    // GET: api/applications
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ApplicationReadDto>>> GetAll()
+    public async Task<ActionResult<IEnumerable<ApplicationGetDto>>> Get()
     {
-        var applications = await _context.Applications.ToListAsync();
-
-        var dtos = applications.Select(a => new ApplicationReadDto
-        {
-            Id = a.Id,
-            PetType = a.PetType,
-            Breed = a.Breed,
-            Temperament = a.Temperament,
-            HasProsthesis = a.HasProsthesis,
-            IsLazy = a.IsLazy,
-            LikesToEat = a.LikesToEat,
-            PhoneNumber = a.PhoneNumber,
-            PreferredService = a.PreferredService,
-            AdditionalNotes = a.AdditionalNotes
-        });
-
-        return Ok(dtos);
+        return await _context.Applications.Select(a =>
+            new ApplicationGetDto(a.Id, a.PetId, a.OwnerId, a.ServiceTypeId, a.CaretakerId, a.AdditionalNotes,
+                a.CreatedAt)).ToListAsync();
     }
-    
-    // GET: api/applications/{id}
-    [HttpGet("{id}")]
-    public async Task<ActionResult<ApplicationReadDto>> GetById(int id)
-    {
-        var application = await _context.Applications.FindAsync(id);
-        if (application == null)
-            return NotFound();
 
-        var dto = new ApplicationReadDto
-        {
-            Id = application.Id,
-            PetType = application.PetType,
-            Breed = application.Breed,
-            Temperament = application.Temperament,
-            HasProsthesis = application.HasProsthesis,
-            IsLazy = application.IsLazy,
-            LikesToEat = application.LikesToEat,
-            PhoneNumber = application.PhoneNumber,
-            PreferredService = application.PreferredService,
-            AdditionalNotes = application.AdditionalNotes
-        };
-
-        return Ok(dto);
-    }
-    
-    // POST: api/applications
     [HttpPost]
-    public async Task<ActionResult<ApplicationReadDto>> Create([FromBody] ApplicationCreateDto createDto)
+    public async Task<ActionResult<ApplicationGetDto>> Create(ApplicationCreateDto dto)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
+        if (!ModelState.IsValid) return BadRequest(ModelState);
 
-        // Перевірка унікальності PhoneNumber (якщо потрібно)
-        var exists = await _context.Applications.AnyAsync(a => a.PhoneNumber == createDto.PhoneNumber);
-        if (exists)
-            return Conflict($"Application with PhoneNumber {createDto.PhoneNumber} already exists.");
+        using var transaction = await _context.Database.BeginTransactionAsync();
 
-        var application = new Application
+        try
         {
-            PetType = createDto.PetType,
-            Breed = createDto.Breed,
-            Temperament = createDto.Temperament,
-            HasProsthesis = createDto.HasProsthesis,
-            IsLazy = createDto.IsLazy,
-            LikesToEat = createDto.LikesToEat,
-            PhoneNumber = createDto.PhoneNumber,
-            PreferredService = createDto.PreferredService,
-            AdditionalNotes = createDto.AdditionalNotes
-        };
+            // Step 1: Handle Owner
+            var existingOwner = await _context.Owners
+                .FirstOrDefaultAsync(o => o.PhoneNumber == dto.OwnerPhoneNumber);
 
-        _context.Applications.Add(application);
-        await _context.SaveChangesAsync();
+            if (existingOwner == null)
+            {
+                existingOwner = new Owner
+                {
+                    FullName = dto.OwnerFullName,
+                    PhoneNumber = dto.OwnerPhoneNumber
+                };
+                _context.Owners.Add(existingOwner);
+                await _context.SaveChangesAsync();
 
-        var readDto = new ApplicationReadDto
+                // Reload the entity to ensure we have the generated ID
+                await _context.Entry(existingOwner).ReloadAsync();
+            }
+
+            // Step 2: Create Pet
+            var pet = new Pet
+            {
+                Name = dto.PetName,
+                Type = dto.PetType,
+                Breed = dto.PetBreed,
+                Temperament = dto.PetTemperament,
+                HasProsthesis = dto.HasProsthesis,
+                IsLazy = dto.IsLazy,
+                LikesToEat = dto.LikesToEat,
+                OwnerId = existingOwner.Id
+            };
+
+            _context.Pets.Add(pet);
+            await _context.SaveChangesAsync();
+
+            // Reload the pet entity to ensure we have the generated ID
+            await _context.Entry(pet).ReloadAsync();
+
+            // Step 3: Create Application
+            var app = new Application
+            {
+                PetId = pet.Id,
+                OwnerId = existingOwner.Id,
+                ServiceTypeId = dto.ServiceTypeId,
+                CaretakerId = dto.CaretakerId,
+                AdditionalNotes = dto.AdditionalNotes,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.Applications.Add(app);
+            await _context.SaveChangesAsync();
+
+            await transaction.CommitAsync();
+
+            return CreatedAtAction(nameof(Get), new { id = app.Id },
+                new ApplicationGetDto(app.Id, app.PetId, app.OwnerId, app.ServiceTypeId, app.CaretakerId,
+                    app.AdditionalNotes, app.CreatedAt));
+        }
+        catch (Exception ex)
         {
-            Id = application.Id,
-            PetType = application.PetType,
-            Breed = application.Breed,
-            Temperament = application.Temperament,
-            HasProsthesis = application.HasProsthesis,
-            IsLazy = application.IsLazy,
-            LikesToEat = application.LikesToEat,
-            PhoneNumber = application.PhoneNumber,
-            PreferredService = application.PreferredService,
-            AdditionalNotes = application.AdditionalNotes
-        };
+            await transaction.RollbackAsync();
 
-        return CreatedAtAction(nameof(GetById), new { id = readDto.Id }, readDto);
+            // Add more detailed logging
+            Console.WriteLine("Error creating application. DTO: " + dto);
+
+            // Check if it's a foreign key constraint error
+            if (ex.InnerException is PostgresException pgEx && pgEx.SqlState == "23503")
+                return BadRequest("Invalid reference data. Please check that the ServiceType and Caretaker exist.");
+
+            throw;
+        }
     }
 
-    // PUT: api/applications/{id}
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(int id, [FromBody] ApplicationUpdateDto updateDto)
+    public async Task<IActionResult> Update(int id, ApplicationUpdateDto dto)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
+        var entity = await _context.Applications.FindAsync(id);
+        if (entity == null) return NotFound();
 
-        var application = await _context.Applications.FindAsync(id);
-        if (application == null)
-            return NotFound();
-
-        application.PetType = updateDto.PetType;
-        application.Breed = updateDto.Breed;
-        application.Temperament = updateDto.Temperament;
-        application.HasProsthesis = updateDto.HasProsthesis;
-        application.IsLazy = updateDto.IsLazy;
-        application.LikesToEat = updateDto.LikesToEat;
-        application.PhoneNumber = updateDto.PhoneNumber;
-        application.PreferredService = updateDto.PreferredService;
-        application.AdditionalNotes = updateDto.AdditionalNotes;
-
+        entity.ServiceTypeId = dto.ServiceTypeId;
+        entity.CaretakerId = dto.CaretakerId;
+        entity.AdditionalNotes = dto.AdditionalNotes;
         await _context.SaveChangesAsync();
-
-        return NoContent();
-    }
-    
-    // DELETE: api/applications/{id}
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> Delete(int id)
-    {
-        var application = await _context.Applications.FindAsync(id);
-        if (application == null)
-            return NotFound();
-
-        _context.Applications.Remove(application);
-        await _context.SaveChangesAsync();
-
         return NoContent();
     }
 }

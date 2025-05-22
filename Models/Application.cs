@@ -6,19 +6,21 @@ public class Application
 {
     public int Id { get; set; }
 
-    [Required] public string PetType { get; set; } = string.Empty;
+    [Required] public int PetId { get; set; }
 
-    [Required] public string Breed { get; set; } = string.Empty;
+    public Pet Pet { get; set; } = null!;
 
-    public string? Temperament { get; set; }
+    [Required] public int OwnerId { get; set; }
 
-    public bool HasProsthesis { get; set; }
-    public bool IsLazy { get; set; }
-    public bool LikesToEat { get; set; }
+    public Owner Owner { get; set; } = null!;
 
-    [Required] [Phone] public string PhoneNumber { get; set; } = string.Empty;
+    public int? ServiceTypeId { get; set; }
+    public ServiceType? ServiceType { get; set; }
 
-    public string? PreferredService { get; set; }
+    public int? CaretakerId { get; set; }
+    public Caretaker? Caretaker { get; set; }
 
     public string? AdditionalNotes { get; set; }
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
